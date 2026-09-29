@@ -1,4 +1,4 @@
-const CACHE = 'medicine-app-v2';   // 版本号从 v1 改成 v2，强制更新
+const CACHE = 'medicine-app-v3';
 
 self.addEventListener('install', e => {
   e.waitUntil(
@@ -11,7 +11,7 @@ self.addEventListener('install', e => {
       ])
     )
   );
-  self.skipWaiting();   // 新 SW 立即接管，不等旧页面关闭
+  self.skipWaiting();
 });
 
 self.addEventListener('activate', e => {
@@ -22,11 +22,11 @@ self.addEventListener('activate', e => {
       )
     )
   );
-  self.clients.claim();  // 立即控制所有页面
+  self.clients.claim();
 });
 
 self.addEventListener('fetch', e => {
-  // 只处理 GET 请求，Supabase 的 POST/PATCH/DELETE 直接放行
+  // 非 GET 请求直接放行（Supabase 的增删改是 POST/PATCH/DELETE）
   if (e.request.method !== 'GET') return;
 
   // Supabase API 请求不走缓存，始终走网络
