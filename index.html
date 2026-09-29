@@ -136,7 +136,32 @@ function render(){
 function esc(s){return String(s).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));}
 $('addBtn').onclick=()=>{ $('form').reset();$('editId').value='';$('formTitle').textContent='录入药品';$('formDlg').showModal(); };
 $('cancelBtn').onclick=()=>$('formDlg').close();
-$('form').onsubmit=e=>{e.preventDefault();let id=$('editId').value;let item={id:id||crypto.randomUUID(),name:$('name').value.trim(),spec:$('spec').value.trim(),qty:$('qty').value,expiry:$('expiry').value};if(id){data=data.map(x=>x.id===id?item:x)}else data.push(item);save();render();$('formDlg').close();toast('保存成功');};
+$('form').onsubmit = async e => {
+  e.preventDefault();
+  const id = $('editId').value;
+  const item = {
+    id: id || crypto.randomUUID(),
+    name: $('name').value.trim(),
+    spec: $('spec').value.trim(),
+    qty: $('qty').value,
+    expiry: $('expiry').value
+  };
+
+  let ok;
+  if (id) {
+    ok = await updateItem(item);
+  } else {
+    ok = await insertItem(item);
+  }
+
+  if (ok) {
+    $('formDlg').close();
+    toast('保存成功');
+    // 不需要手动 render()，Realtime 会推送变化并触发刷新
+    // 但如果 Realtime 有延迟，可以立即 loadData() 一次
+    await loadData();
+  }
+};
 window.editItem=id=>{let x=data.find(x=>x.id===id);$('editId').value=x.id;$('name').value=x.name;$('spec').value=x.spec||'';$('qty').value=x.qty??'';$('expiry').value=x.expiry;$('formTitle').textContent='修改药品';$('formDlg').showModal();};
 window.delItem=id=>{if(confirm('确定删除这条药品记录吗？')){data=data.filter(x=>x.id!==id);save();render();}};
 $('search').oninput=render;
