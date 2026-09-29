@@ -88,6 +88,21 @@ async function loadData() {
     .order('expiry', { ascending: true });
   if (error) { console.error(error); toast('加载失败'); return; }
   data = rows || [];
+  // ===== 实时同步 =====
+const channel = supabase
+  .channel('medicines-changes')
+  .on(
+    'postgres_changes',
+    { event: '*', schema: 'public', table: 'medicines' },
+    (payload) => {
+      console.log('Realtime 变化：', payload);
+      // 任何增删改都重新拉取，逻辑最简单也最不容易出错
+      loadData();
+    }
+  )
+  .subscribe((status) => {
+    console.log('Realtime 状态：', status);
+  });
   render();
 }
 
