@@ -1,0 +1,10 @@
+{
+  "name": "药品有效期管理",
+  "short_name": "药品管理",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#f5f7fb",
+  "theme_color": "#2563eb",
+  "lang": "zh-CN",
+  "icons": []
+}
