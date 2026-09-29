@@ -72,10 +72,48 @@ dialog{border:0;border-radius:16px;width:min(92vw,440px);padding:0;box-shadow:0 
 <div class="toast" id="toast"></div>
 
 <script>
-const KEY='medicine_expiry_data_v1';
-let data=JSON.parse(localStorage.getItem(KEY)||'[]');
-const $=id=>document.getElementById(id);
-function save(){localStorage.setItem(KEY,JSON.stringify(data));}
+// ===== Supabase 配置 =====
+const SUPABASE_URL  = '你的项目URL';
+const SUPABASE_KEY  = '你的anon public key';
+const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+let data = [];              // 内存中的数据，从 Supabase 拉取
+const $ = id => document.getElementById(id);
+
+// 从 Supabase 拉取全部数据
+async function loadData() {
+  const { data: rows, error } = await supabase
+    .from('medicines')
+    .select('*')
+    .order('expiry', { ascending: true });
+  if (error) { console.error(error); toast('加载失败'); return; }
+  data = rows || [];
+  render();
+}
+
+// 新增
+async function insertItem(item) {
+  const { error } = await supabase.from('medicines').insert([item]);
+  if (error) { console.error(error); toast('保存失败'); return false; }
+  return true;
+}
+
+// 更新
+async function updateItem(item) {
+  const { error } = await supabase
+    .from('medicines')
+    .update({ name: item.name, spec: item.spec, qty: item.qty, expiry: item.expiry, updated_at: new Date().toISOString() })
+    .eq('id', item.id);
+  if (error) { console.error(error); toast('更新失败'); return false; }
+  return true;
+}
+
+// 删除
+async function deleteItem(id) {
+  const { error } = await supabase.from('medicines').delete().eq('id', id);
+  if (error) { console.error(error); toast('删除失败'); return false; }
+  return true;
+}
 function daysLeft(date){const d=new Date(date+'T23:59:59'); const now=new Date(); const today=new Date(now.getFullYear(),now.getMonth(),now.getDate()); return Math.ceil((d-today)/86400000);}
 function status(days){if(days<0)return ['已过期','expired'];if(days<=30)return ['30天内提醒','urgent'];if(days<=90)return ['90天内提醒','warn'];return ['正常','ok'];}
 
