@@ -1,0 +1,279 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#2563eb">
+<link rel="manifest" href="manifest.json">
+<title>药品有效期管理</title>
+<style>
+*{box-sizing:border-box}body{margin:0;font-family:system-ui,-apple-system,"Noto Sans SC",sans-serif;background:#f5f7fb;color:#172033}
+header{background:#2563eb;color:#fff;padding:18px 16px 20px;position:sticky;top:0;z-index:5}
+h1{font-size:20px;margin:0 0 4px}.sub{font-size:13px;opacity:.9}
+main{padding:14px;max-width:900px;margin:auto}.toolbar{display:flex;gap:10px;margin-bottom:12px}
+button{border:0;border-radius:10px;padding:11px 15px;font-size:15px;cursor:pointer}
+.primary{background:#2563eb;color:#fff}.secondary{background:#fff;color:#2563eb;border:1px solid #d7deea}
+.card{background:#fff;border-radius:14px;padding:14px;margin-bottom:12px;box-shadow:0 2px 10px #0000000d}
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.stat{padding:12px;border-radius:10px;background:#f7f9fc}.num{font-size:22px;font-weight:700}.label{font-size:12px;color:#697386}
+.table-wrap{overflow:auto}.search{width:100%;padding:11px;border:1px solid #d7deea;border-radius:10px;margin-bottom:12px;font-size:15px}
+table{width:100%;border-collapse:collapse;min-width:620px}th,td{padding:11px 8px;border-bottom:1px solid #edf0f5;text-align:left;font-size:14px}th{color:#697386;font-weight:600}
+.badge{padding:4px 8px;border-radius:999px;font-size:12px;white-space:nowrap}.ok{background:#e9f8ef;color:#177245}.warn{background:#fff4d6;color:#9a6500}.urgent{background:#ffe8e8;color:#b42318}.expired{background:#eee;color:#555}
+.empty{text-align:center;color:#8a94a6;padding:30px}
+dialog{border:0;border-radius:16px;width:min(92vw,440px);padding:0;box-shadow:0 15px 50px #0004}dialog::backdrop{background:#0006}
+.modal{padding:18px}.modal h2{margin:0 0 14px;font-size:19px}.field{margin:12px 0}.field label{display:block;font-size:13px;color:#697386;margin-bottom:6px}.field input{width:100%;padding:11px;border:1px solid #d7deea;border-radius:9px;font-size:15px}.actions{display:flex;justify-content:flex-end;gap:8px;margin-top:18px}
+.alert-item{padding:10px 0;border-bottom:1px solid #eee}.alert-item:last-child{border-bottom:0}.alert-title{font-weight:600}.alert-meta{font-size:13px;color:#697386;margin-top:3px}
+.toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);background:#172033;color:#fff;padding:10px 15px;border-radius:9px;display:none;z-index:20}
+@media(max-width:600px){.stats{grid-template-columns:1fr 1fr 1fr}.toolbar button{flex:1}}
+</style>
+</head>
+<body>
+<header><h1>药品有效期管理</h1><div class="sub">云端同步 · 自动计算剩余天数 · 启动自动提醒</div></header>
+<main>
+  <div class="toolbar">
+    <button class="primary" id="addBtn">＋ 录入药品</button>
+    <button class="secondary" id="exportBtn">导出数据</button>
+    <button class="secondary" id="importBtn">导入数据</button>
+    <input id="fileInput" type="file" accept=".json" hidden>
+  </div>
+  <div class="card stats">
+    <div class="stat"><div class="num" id="total">0</div><div class="label">药品总数</div></div>
+    <div class="stat"><div class="num" id="warn">0</div><div class="label">需要提醒</div></div>
+    <div class="stat"><div class="num" id="expired">0</div><div class="label">已过期</div></div>
+  </div>
+  <div class="card">
+    <input class="search" id="search" placeholder="搜索药品名称或规格">
+    <div class="table-wrap">
+      <table><thead><tr><th>药品名称</th><th>规格</th><th>数量</th><th>有效期</th><th>剩余天数</th><th>提醒状态</th><th>操作</th></tr></thead>
+      <tbody id="tbody"></tbody></table>
+      <div id="empty" class="empty">暂无药品，请点击“录入药品”</div>
+    </div>
+  </div>
+</main>
+
+<dialog id="formDlg">
+<div class="modal">
+<h2 id="formTitle">录入药品</h2>
+<form id="form">
+<input type="hidden" id="editId">
+<div class="field"><label>药品名称</label><input id="name" required></div>
+<div class="field"><label>规格</label><input id="spec"></div>
+<div class="field"><label>数量</label><input id="qty" type="number" min="0" step="1"></div>
+<div class="field"><label>有效期</label><input id="expiry" type="date" required></div>
+<div class="actions"><button type="button" class="secondary" id="cancelBtn">取消</button><button class="primary">保存</button></div>
+</form>
+</div>
+</dialog>
+
+<dialog id="alertDlg">
+<div class="modal"><h2>⚠️ 药品有效期提醒</h2><div id="alertList"></div>
+<div class="actions"><button class="primary" id="closeAlert">知道了</button></div></div>
+</dialog>
+<div class="toast" id="toast"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+/* ============================================================
+   1. Supabase 配置
+   ============================================================ */
+const SUPABASE_URL = '你的项目URL';          // ← 改成你的
+const SUPABASE_KEY = '你的anon public key';  // ← 改成你的
+const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+let data = [];
+const $ = id => document.getElementById(id);
+
+/* ============================================================
+   2. 工具函数
+   ============================================================ */
+function esc(s){return String(s).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));}
+function daysLeft(date){const d=new Date(date+'T23:59:59');const now=new Date();const today=new Date(now.getFullYear(),now.getMonth(),now.getDate());return Math.ceil((d-today)/86400000);}
+function status(days){if(days<0)return ['已过期','expired'];if(days<=30)return ['30天内提醒','urgent'];if(days<=90)return ['90天内提醒','warn'];return ['正常','ok'];}
+function needAlert(days){ return days===90 || days===30 || days<=15; }
+function toast(s){$('toast').textContent=s;$('toast').style.display='block';setTimeout(()=>$('toast').style.display='none',1600);}
+
+/* ============================================================
+   3. Supabase 读写
+   ============================================================ */
+async function loadData() {
+  const { data: rows, error } = await supabase
+    .from('medicines')
+    .select('*')
+    .order('expiry', { ascending: true });
+  if (error) { console.error(error); toast('加载失败'); return; }
+  data = rows || [];
+  render();
+}
+
+async function insertItem(item) {
+  const { error } = await supabase.from('medicines').insert([item]);
+  if (error) { console.error(error); toast('保存失败'); return false; }
+  return true;
+}
+
+async function updateItem(item) {
+  const { error } = await supabase
+    .from('medicines')
+    .update({ name: item.name, spec: item.spec, qty: item.qty, expiry: item.expiry, updated_at: new Date().toISOString() })
+    .eq('id', item.id);
+  if (error) { console.error(error); toast('更新失败'); return false; }
+  return true;
+}
+
+async function deleteItem(id) {
+  const { error } = await supabase.from('medicines').delete().eq('id', id);
+  if (error) { console.error(error); toast('删除失败'); return false; }
+  return true;
+}
+
+/* ============================================================
+   4. 渲染
+   ============================================================ */
+function render(){
+  const q = $('search').value.trim().toLowerCase();
+  let rows = data.filter(x => (x.name + ' ' + (x.spec || '')).toLowerCase().includes(q));
+  rows.sort((a,b) => daysLeft(a.expiry) - daysLeft(b.expiry));
+  $('tbody').innerHTML = rows.map(x => {
+    const d = daysLeft(x.expiry), s = status(d);
+    return `<tr>
+<td><b>${esc(x.name)}</b></td><td>${esc(x.spec||'')}</td><td>${x.qty??''}</td><td>${x.expiry}</td>
+<td>${d<0?'已过期':d+'天'}</td><td><span class="badge ${s[1]}">${s[0]}</span></td>
+<td><button class="secondary" onclick="editItem('${x.id}')">编辑</button> <button class="secondary" onclick="delItem('${x.id}')">删除</button></td></tr>`;
+  }).join('');
+  $('empty').style.display = rows.length ? 'none' : 'block';
+  $('total').textContent = data.length;
+  $('warn').textContent = data.filter(x => daysLeft(x.expiry) <= 90).length;
+  $('expired').textContent = data.filter(x => daysLeft(x.expiry) < 0).length;
+}
+
+/* ============================================================
+   5. 表单 / 增删改
+   ============================================================ */
+$('addBtn').onclick = () => {
+  $('form').reset();
+  $('editId').value = '';
+  $('formTitle').textContent = '录入药品';
+  $('formDlg').showModal();
+};
+$('cancelBtn').onclick = () => $('formDlg').close();
+
+$('form').onsubmit = async e => {
+  e.preventDefault();
+  const id = $('editId').value;
+  const item = {
+    id: id || crypto.randomUUID(),
+    name: $('name').value.trim(),
+    spec: $('spec').value.trim(),
+    qty: $('qty').value,
+    expiry: $('expiry').value
+  };
+  const ok = id ? await updateItem(item) : await insertItem(item);
+  if (ok) {
+    $('formDlg').close();
+    toast('保存成功');
+    await loadData();
+  }
+};
+
+window.editItem = id => {
+  const x = data.find(x => x.id === id);
+  $('editId').value = x.id;
+  $('name').value = x.name;
+  $('spec').value = x.spec || '';
+  $('qty').value = x.qty ?? '';
+  $('expiry').value = x.expiry;
+  $('formTitle').textContent = '修改药品';
+  $('formDlg').showModal();
+};
+
+window.delItem = async id => {
+  if (!confirm('确定删除这条药品记录吗？')) return;
+  const ok = await deleteItem(id);
+  if (ok) await loadData();
+};
+
+$('search').oninput = render;
+
+/* ============================================================
+   6. 启动提醒
+   ============================================================ */
+function checkAlerts(){
+  const alerts = data.filter(x => needAlert(daysLeft(x.expiry)));
+  if (!alerts.length) return;
+  $('alertList').innerHTML = alerts.sort((a,b) => daysLeft(a.expiry) - daysLeft(b.expiry)).map(x => {
+    const d = daysLeft(x.expiry);
+    const tip = d === 90 ? '（剩余90天）' : d === 30 ? '（剩余30天）' : '';
+    return `<div class="alert-item"><div class="alert-title">${esc(x.name)} ${tip}</div><div class="alert-meta">规格：${esc(x.spec||'未填写')}　有效期：${x.expiry}　${d<0?'已过期':`剩余 ${d} 天`}</div></div>`;
+  }).join('');
+  $('alertDlg').showModal();
+}
+$('closeAlert').onclick = () => $('alertDlg').close();
+
+/* ============================================================
+   7. 导出 / 导入
+   ============================================================ */
+$('exportBtn').onclick = () => {
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = '药品数据.json';
+  a.click();
+  URL.revokeObjectURL(a.href);
+};
+
+$('importBtn').onclick = () => $('fileInput').click();
+
+$('fileInput').onchange = e => {
+  const f = e.target.files[0];
+  if (!f) return;
+  const r = new FileReader();
+  r.onload = async () => {
+    try {
+      const arr = JSON.parse(r.result);
+      if (!Array.isArray(arr)) throw 0;
+      const rows = arr.map(x => ({
+        id: (x.id && /^[0-9a-f-]{36}$/i.test(x.id)) ? x.id : crypto.randomUUID(),
+        name: x.name,
+        spec: x.spec || '',
+        qty: x.qty ?? '',
+        expiry: x.expiry
+      }));
+      const { error } = await supabase.from('medicines').insert(rows);
+      if (error) throw error;
+      await loadData();
+      toast('导入成功');
+    } catch (err) {
+      console.error(err);
+      alert('导入失败：文件格式不正确或与云端冲突');
+    }
+  };
+  r.readAsText(f);
+};
+
+/* ============================================================
+   8. 实时同步（Realtime）
+   ============================================================ */
+const channel = supabase
+  .channel('medicines-changes')
+  .on(
+    'postgres_changes',
+    { event: '*', schema: 'public', table: 'medicines' },
+    (payload) => {
+      console.log('Realtime 变化：', payload);
+      loadData();
+    }
+  )
+  .subscribe(status => {
+    console.log('Realtime 状态：', status);
+  });
+
+/* ============================================================
+   9. 首次加载 + Service Worker
+   ============================================================ */
+loadData().then(() => {
+  setTimeout(checkAlerts, 500);
+});
+
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+</script>
+</body>
+</html>
