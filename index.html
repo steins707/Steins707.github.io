@@ -25,10 +25,9 @@ dialog{border:0;border-radius:16px;width:min(92vw,440px);padding:0;box-shadow:0 
 .toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);background:#172033;color:#fff;padding:10px 15px;border-radius:9px;display:none;z-index:20}
 @media(max-width:600px){.stats{grid-template-columns:1fr 1fr 1fr}.toolbar button{flex:1}}
 </style>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
-<header><h1>药品有效期管理</h1><div class="sub">本机保存 · 自动计算剩余天数 · 启动自动提醒</div></header>
+<header><h1>药品有效期管理</h1><div class="sub">云端同步 · 自动计算剩余天数 · 启动自动提醒</div></header>
 <main>
   <div class="toolbar">
     <button class="primary" id="addBtn">＋ 录入药品</button>
@@ -71,16 +70,30 @@ dialog{border:0;border-radius:16px;width:min(92vw,440px);padding:0;box-shadow:0 
 </dialog>
 <div class="toast" id="toast"></div>
 
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
-// ===== Supabase 配置 =====
-const SUPABASE_URL  = '你的项目URL';
-const SUPABASE_KEY  = '你的anon public key';
+/* ============================================================
+   1. Supabase 配置
+   ============================================================ */
+const SUPABASE_URL = '你的项目URL';          // ← 改成你的
+const SUPABASE_KEY = '你的anon public key';  // ← 改成你的
 const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
-let data = [];              // 内存中的数据，从 Supabase 拉取
+let data = [];
 const $ = id => document.getElementById(id);
 
-// 从 Supabase 拉取全部数据
+/* ============================================================
+   2. 工具函数
+   ============================================================ */
+function esc(s){return String(s).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));}
+function daysLeft(date){const d=new Date(date+'T23:59:59');const now=new Date();const today=new Date(now.getFullYear(),now.getMonth(),now.getDate());return Math.ceil((d-today)/86400000);}
+function status(days){if(days<0)return ['已过期','expired'];if(days<=30)return ['30天内提醒','urgent'];if(days<=90)return ['90天内提醒','warn'];return ['正常','ok'];}
+function needAlert(days){ return days===90 || days===30 || days<=15; }
+function toast(s){$('toast').textContent=s;$('toast').style.display='block';setTimeout(()=>$('toast').style.display='none',1600);}
+
+/* ============================================================
+   3. Supabase 读写
+   ============================================================ */
 async function loadData() {
   const { data: rows, error } = await supabase
     .from('medicines')
@@ -91,14 +104,12 @@ async function loadData() {
   render();
 }
 
-// 新增
 async function insertItem(item) {
   const { error } = await supabase.from('medicines').insert([item]);
   if (error) { console.error(error); toast('保存失败'); return false; }
   return true;
 }
 
-// 更新
 async function updateItem(item) {
   const { error } = await supabase
     .from('medicines')
@@ -108,34 +119,43 @@ async function updateItem(item) {
   return true;
 }
 
-// 删除
 async function deleteItem(id) {
   const { error } = await supabase.from('medicines').delete().eq('id', id);
   if (error) { console.error(error); toast('删除失败'); return false; }
   return true;
 }
-function daysLeft(date){const d=new Date(date+'T23:59:59'); const now=new Date(); const today=new Date(now.getFullYear(),now.getMonth(),now.getDate()); return Math.ceil((d-today)/86400000);}
-function status(days){if(days<0)return ['已过期','expired'];if(days<=30)return ['30天内提醒','urgent'];if(days<=90)return ['90天内提醒','warn'];return ['正常','ok'];}
 
-/* ===== 弹窗提醒条件：仅当 剩余天数=90、=30 或 <=15 时提醒 ===== */
-function needAlert(days){ return days===90 || days===30 || days<=15; }
-
+/* ============================================================
+   4. 渲染
+   ============================================================ */
 function render(){
- const q=$('search').value.trim().toLowerCase();
- let rows=data.filter(x=>(x.name+' '+(x.spec||'')).toLowerCase().includes(q));
- rows.sort((a,b)=>daysLeft(a.expiry)-daysLeft(b.expiry));
- $('tbody').innerHTML=rows.map(x=>{let d=daysLeft(x.expiry),s=status(d);return `<tr>
+  const q = $('search').value.trim().toLowerCase();
+  let rows = data.filter(x => (x.name + ' ' + (x.spec || '')).toLowerCase().includes(q));
+  rows.sort((a,b) => daysLeft(a.expiry) - daysLeft(b.expiry));
+  $('tbody').innerHTML = rows.map(x => {
+    const d = daysLeft(x.expiry), s = status(d);
+    return `<tr>
 <td><b>${esc(x.name)}</b></td><td>${esc(x.spec||'')}</td><td>${x.qty??''}</td><td>${x.expiry}</td>
 <td>${d<0?'已过期':d+'天'}</td><td><span class="badge ${s[1]}">${s[0]}</span></td>
-<td><button class="secondary" onclick="editItem('${x.id}')">编辑</button> <button class="secondary" onclick="delItem('${x.id}')">删除</button></td></tr>`}).join('');
- $('empty').style.display=rows.length?'none':'block';
- $('total').textContent=data.length;
- $('warn').textContent=data.filter(x=>daysLeft(x.expiry)<=90).length;
- $('expired').textContent=data.filter(x=>daysLeft(x.expiry)<0).length;
+<td><button class="secondary" onclick="editItem('${x.id}')">编辑</button> <button class="secondary" onclick="delItem('${x.id}')">删除</button></td></tr>`;
+  }).join('');
+  $('empty').style.display = rows.length ? 'none' : 'block';
+  $('total').textContent = data.length;
+  $('warn').textContent = data.filter(x => daysLeft(x.expiry) <= 90).length;
+  $('expired').textContent = data.filter(x => daysLeft(x.expiry) < 0).length;
 }
-function esc(s){return String(s).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));}
-$('addBtn').onclick=()=>{ $('form').reset();$('editId').value='';$('formTitle').textContent='录入药品';$('formDlg').showModal(); };
-$('cancelBtn').onclick=()=>$('formDlg').close();
+
+/* ============================================================
+   5. 表单 / 增删改
+   ============================================================ */
+$('addBtn').onclick = () => {
+  $('form').reset();
+  $('editId').value = '';
+  $('formTitle').textContent = '录入药品';
+  $('formDlg').showModal();
+};
+$('cancelBtn').onclick = () => $('formDlg').close();
+
 $('form').onsubmit = async e => {
   e.preventDefault();
   const id = $('editId').value;
@@ -146,38 +166,62 @@ $('form').onsubmit = async e => {
     qty: $('qty').value,
     expiry: $('expiry').value
   };
-
-  let ok;
-  if (id) {
-    ok = await updateItem(item);
-  } else {
-    ok = await insertItem(item);
-  }
-
+  const ok = id ? await updateItem(item) : await insertItem(item);
   if (ok) {
     $('formDlg').close();
     toast('保存成功');
-    // 不需要手动 render()，Realtime 会推送变化并触发刷新
-    // 但如果 Realtime 有延迟，可以立即 loadData() 一次
     await loadData();
   }
 };
-window.editItem=id=>{let x=data.find(x=>x.id===id);$('editId').value=x.id;$('name').value=x.name;$('spec').value=x.spec||'';$('qty').value=x.qty??'';$('expiry').value=x.expiry;$('formTitle').textContent='修改药品';$('formDlg').showModal();};
-window.delItem=id=>{if(confirm('确定删除这条药品记录吗？')){data=data.filter(x=>x.id!==id);save();render();}};
-$('search').oninput=render;
 
+window.editItem = id => {
+  const x = data.find(x => x.id === id);
+  $('editId').value = x.id;
+  $('name').value = x.name;
+  $('spec').value = x.spec || '';
+  $('qty').value = x.qty ?? '';
+  $('expiry').value = x.expiry;
+  $('formTitle').textContent = '修改药品';
+  $('formDlg').showModal();
+};
+
+window.delItem = async id => {
+  if (!confirm('确定删除这条药品记录吗？')) return;
+  const ok = await deleteItem(id);
+  if (ok) await loadData();
+};
+
+$('search').oninput = render;
+
+/* ============================================================
+   6. 启动提醒
+   ============================================================ */
 function checkAlerts(){
- const alerts=data.filter(x=>needAlert(daysLeft(x.expiry)));
- if(!alerts.length)return;
- $('alertList').innerHTML=alerts.sort((a,b)=>daysLeft(a.expiry)-daysLeft(b.expiry)).map(x=>{let d=daysLeft(x.expiry);
-   let tip = d===90 ? '（剩余90天）' : d===30 ? '（剩余30天）' : '';
-   return `<div class="alert-item"><div class="alert-title">${esc(x.name)} ${tip}</div><div class="alert-meta">规格：${esc(x.spec||'未填写')}　有效期：${x.expiry}　${d<0?'已过期':`剩余 ${d} 天`}</div></div>`}).join('');
- $('alertDlg').showModal();
+  const alerts = data.filter(x => needAlert(daysLeft(x.expiry)));
+  if (!alerts.length) return;
+  $('alertList').innerHTML = alerts.sort((a,b) => daysLeft(a.expiry) - daysLeft(b.expiry)).map(x => {
+    const d = daysLeft(x.expiry);
+    const tip = d === 90 ? '（剩余90天）' : d === 30 ? '（剩余30天）' : '';
+    return `<div class="alert-item"><div class="alert-title">${esc(x.name)} ${tip}</div><div class="alert-meta">规格：${esc(x.spec||'未填写')}　有效期：${x.expiry}　${d<0?'已过期':`剩余 ${d} 天`}</div></div>`;
+  }).join('');
+  $('alertDlg').showModal();
 }
-$('closeAlert').onclick=()=>$('alertDlg').close();
-function toast(s){$('toast').textContent=s;$('toast').style.display='block';setTimeout(()=>$('toast').style.display='none',1600)}
-$('exportBtn').onclick=()=>{let blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});let a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='药品数据.json';a.click();URL.revokeObjectURL(a.href);};
-$('importBtn').onclick=()=>$('fileInput').click();
+$('closeAlert').onclick = () => $('alertDlg').close();
+
+/* ============================================================
+   7. 导出 / 导入
+   ============================================================ */
+$('exportBtn').onclick = () => {
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = '药品数据.json';
+  a.click();
+  URL.revokeObjectURL(a.href);
+};
+
+$('importBtn').onclick = () => $('fileInput').click();
+
 $('fileInput').onchange = e => {
   const f = e.target.files[0];
   if (!f) return;
@@ -186,8 +230,6 @@ $('fileInput').onchange = e => {
     try {
       const arr = JSON.parse(r.result);
       if (!Array.isArray(arr)) throw 0;
-
-      // 给每条数据补 uuid（如果导入的旧数据没有 id 或 id 不是 uuid）
       const rows = arr.map(x => ({
         id: (x.id && /^[0-9a-f-]{36}$/i.test(x.id)) ? x.id : crypto.randomUUID(),
         name: x.name,
@@ -195,10 +237,8 @@ $('fileInput').onchange = e => {
         qty: x.qty ?? '',
         expiry: x.expiry
       }));
-
       const { error } = await supabase.from('medicines').insert(rows);
       if (error) throw error;
-
       await loadData();
       toast('导入成功');
     } catch (err) {
@@ -208,7 +248,10 @@ $('fileInput').onchange = e => {
   };
   r.readAsText(f);
 };
-// ===== 实时同步 =====
+
+/* ============================================================
+   8. 实时同步（Realtime）
+   ============================================================ */
 const channel = supabase
   .channel('medicines-changes')
   .on(
@@ -216,18 +259,21 @@ const channel = supabase
     { event: '*', schema: 'public', table: 'medicines' },
     (payload) => {
       console.log('Realtime 变化：', payload);
-      // 任何增删改都重新拉取，逻辑最简单也最不容易出错
       loadData();
     }
   )
-  .subscribe((status) => {
+  .subscribe(status => {
     console.log('Realtime 状态：', status);
   });
-// 首次加载
+
+/* ============================================================
+   9. 首次加载 + Service Worker
+   ============================================================ */
 loadData().then(() => {
   setTimeout(checkAlerts, 500);
 });
-if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(()=>{});
+
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
 </script>
 </body>
 </html>
