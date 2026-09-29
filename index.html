@@ -178,7 +178,36 @@ $('closeAlert').onclick=()=>$('alertDlg').close();
 function toast(s){$('toast').textContent=s;$('toast').style.display='block';setTimeout(()=>$('toast').style.display='none',1600)}
 $('exportBtn').onclick=()=>{let blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});let a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='药品数据.json';a.click();URL.revokeObjectURL(a.href);};
 $('importBtn').onclick=()=>$('fileInput').click();
-$('fileInput').onchange=e=>{let f=e.target.files[0];if(!f)return;let r=new FileReader();r.onload=()=>{try{let x=JSON.parse(r.result);if(!Array.isArray(x))throw 0;data=x;save();render();toast('导入成功')}catch{alert('导入失败：文件格式不正确')}};r.readAsText(f);};
+$('fileInput').onchange = e => {
+  const f = e.target.files[0];
+  if (!f) return;
+  const r = new FileReader();
+  r.onload = async () => {
+    try {
+      const arr = JSON.parse(r.result);
+      if (!Array.isArray(arr)) throw 0;
+
+      // 给每条数据补 uuid（如果导入的旧数据没有 id 或 id 不是 uuid）
+      const rows = arr.map(x => ({
+        id: (x.id && /^[0-9a-f-]{36}$/i.test(x.id)) ? x.id : crypto.randomUUID(),
+        name: x.name,
+        spec: x.spec || '',
+        qty: x.qty ?? '',
+        expiry: x.expiry
+      }));
+
+      const { error } = await supabase.from('medicines').insert(rows);
+      if (error) throw error;
+
+      await loadData();
+      toast('导入成功');
+    } catch (err) {
+      console.error(err);
+      alert('导入失败：文件格式不正确或与云端冲突');
+    }
+  };
+  r.readAsText(f);
+};
 render();
 setTimeout(checkAlerts,500);
 if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(()=>{});
